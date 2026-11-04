@@ -1,286 +1,259 @@
-# AI-Powered Job Search Automation
+# Job search pipeline
 
+A local pipeline for a targeted job search. It fetches open roles from
+company career boards and from job aggregators, keeps the ones that match
+your rules, remembers everything it has already seen, and can score the
+remaining postings against a profile you write. You review the results in
+a browser, in a desktop card window, or in a Markdown file.
 
-An automated pipeline for a targeted job search: fetch open roles directly
-from companies' ATS APIs and job aggregators, filter out anything
-irrelevant, deduplicate against everything already seen, optionally score
-each candidate's fit against your own experience with Claude, and review
-the results in a local web board or a Markdown digest.
+Fetching and filtering are free. Scoring calls the Anthropic API and costs
+money. Job text, scores, and your notes stay in SQLite on this machine.
+The only outbound calls are the job sources you configure and, when you
+score, Anthropic.
 
-Nothing here talks to any service other than the job sources you configure
-and (for the optional AI step) the Anthropic API. All state — scraped
-jobs, scores, your own notes — lives in a local SQLite database; nothing
-is sent to a third party beyond fetching the postings themselves.
+Run every command from the repository root.
 
-## How it works
+Windows PowerShell:
 
-1. **Fetch** (`app/main.py`) — pulls open roles from:
-   - `data/ats_discovery.sqlite3` table `ats_slug` — one board per row with
-     `available = 1` (Greenhouse, Ashby, Workable, Lever, SmartRecruiters)
-     — precise, low noise.
-   - `aggregators.yaml` — broad keyword+location search across many
-     employers at once (Adzuna, Remotive) — wider reach, more noise.
-2. **Filter** (`app/filters.py`) — drops anything that isn't an
-   engineering-shaped title, isn't in an allowed location, or whose JD
-   requires a stack you've excluded.
-3. **Dedup** (`app/dedup.py`) — everything fetched is stored in a local
-   SQLite database (`data/seen_jobs.sqlite3`), keyed by URL and by
-   normalized company+title, so re-runs only ever surface genuinely new
-   postings.
-4. **AI evaluation** (`app/ai_evaluate.py`, optional, costs money) — sends
-   each filtered candidate plus your `profile.yaml` to Claude, which scores
-   fit (0-100) and returns concrete gaps, transferable strengths, risk
-   factors, and an apply/consider/skip recommendation.
-5. **Review** (`web/`) — a local Next.js app reading/writing the same
-   SQLite database directly, for browsing results and tracking your own
-   `applied / interview / rejected / skipped / silence` status and notes.
-6. **Digest** (`app/digest.py`) — writes `data/digest.md`, one section per
-   job scored 45 or above that you have not marked applied or skipped,
-   highest match score first, with the same information as the detail panel.
+```powershell
+cd C:\path\to\job_search_tool
+python -m app.main
+```
 
-## Setup
+macOS and Linux (Terminal, bash or zsh):
 
 ```bash
+cd /path/to/job_search_tool
+python3 -m app.main
+```
+
+Examples later in this file use `python`, which is the usual Windows
+command. On macOS and Linux, use `python3` when `python` is not Python
+3.10 or newer. The flags do not change.
+
+`make` is the short form on macOS and Linux. The Makefile uses Bash. On
+Windows, run `make` from Git Bash or WSL, or stay with `python -m` in
+PowerShell. macOS needs the Xcode command-line tools (`xcode-select
+--install`) before `make` is available. Debian and Ubuntu need `make`
+from the `make` package when it is not already installed.
+
+## What you need
+
+- Python 3.10 or newer.
+- For the browser board: Node.js and npm.
+- For scoring: an Anthropic API key in `.env`.
+- For Adzuna searches: a free Adzuna app id and key in `.env`. Remotive
+  needs no key.
+
+## First run
+
+Windows PowerShell:
+
+```powershell
 python setup.py
 ```
 
-That installs `requirements.txt`, copies these templates when the real
-file is missing (it never overwrites a file you already have), and creates
-`data/ats_discovery.sqlite3` with the `ats_slug` table:
-
-- `.env.example` → `.env`
-- `profile.example.yaml` → `profile.yaml`
-- `filters.yaml.example` → `filters.yaml`
-- `aggregators.yaml.example` → `aggregators.yaml`
-
-Fill in `.env` and `profile.yaml`. `profile.yaml` is gitignored — it holds
-your personal experience. `profile.example.yaml` is a blank template.
-For a fully worked (fictional) example, see
-[`profile.sample.yaml`](profile.sample.yaml). It shows the level of
-specificity each evidence bullet should have. `profile.example.yaml` is
-only the shape.
-
-`ANTHROPIC_API_KEY` is only needed for the AI evaluation step. Adzuna
-(`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`) is only needed if you keep an Adzuna
-entry in `aggregators.yaml` — register a free key at
-[developer.adzuna.com](https://developer.adzuna.com). Remotive needs no
-auth but only covers remote roles.
-
-### Customize for your own search
-
-This repo ships pre-configured for the original author. **Before your first run, new file and customize to your profile** or you'll get zero candidates, or candidates that don't match your
-actual stack:
-
-1. **`filters.yaml` → `location_allow_patterns`** — regex patterns for
-   locations to keep. Ships as Canada/Alberta-only; replace with your own
-   country/region/cities, or delete entries to broaden it. This is the
-   #1 reason a first run returns nothing — if nothing you fetch ever
-   matches these patterns, `location_is_allowed()` rejects every job.
-2. **`filters.yaml` → `stack_dealbreakers` / `stack_core`** — a JD is
-   rejected if it mentions a `stack_dealbreakers` language and none of
-   `stack_core`. Ships assuming you want Python/JS and don't want
-   Java/C#/.NET/etc. If your own stack includes one of the "dealbreaker"
-   languages, move it into `stack_core` (or the filter will reject roles
-   in your own stack).
-3. **`ats_slug`** — the company registry, in `data/ats_discovery.sqlite3`.
-   Each row is one board (`slug`, `ats_board`, `name`). `available = 1`
-   means the next run will check it. `companies.yaml.example` shows the
-   old entry shape; the pipeline does not read that file.
-   `aggregators.yaml`'s `where` params are also location-specific —
-   update those too if you're not targeting Alberta/Canada.
-
-## Usage
-
-### 1. Fetch + filter (free)
+macOS and Linux:
 
 ```bash
-python -m app.main                    # all companies + aggregators
-python -m app.main --company affirm   # just one company, for debugging a fetcher
-python -m app.main --skip-aggregators # ats_slug boards only
-python -m app.main --skip-companies   # aggregators.yaml only
-
-make run                              # same thing, interactive prompts instead of flags
+python3 setup.py
 ```
 
-Output: `data/candidates.csv`, appended to on every run.
+`setup.py` installs `requirements.txt`, creates
+`data/ats_discovery.sqlite3` (table `ats_slug`) when that database is
+missing, and copies these templates only when the destination is missing:
 
-### 2. AI evaluation (optional, costs money)
+| Template | Created file | You edit it |
+| --- | --- | --- |
+| `.env.example` | `.env` | API keys |
+| `profile.example.yaml` | `profile.yaml` | Your experience, used only when scoring |
+| `filters.yaml.example` | `filters.yaml` | Which titles, locations, stacks, and ages to keep |
+| `aggregators.yaml.example` | `aggregators.yaml` | Adzuna and Remotive searches |
 
-```bash
-python -m app.ai_evaluate --dry-run   # see what's queued, no API calls, no cost
-python -m app.ai_evaluate --limit 20  # score just 20, to sanity-check quality/cost first
-python -m app.ai_evaluate             # score everything unscored
+It does not copy `gates.yaml`. It does not install the web app. It does
+not overwrite a file or an `ats_slug` row you already have.
 
-make evaluate                         # interactive prompts instead of flags
+Then:
+
+1. Put keys in `.env`. `ANTHROPIC_API_KEY` can wait until you score.
+   `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` can wait until you enable Adzuna.
+2. Replace the placeholder text in `profile.yaml`.
+   [`profile.sample.yaml`](profile.sample.yaml) is a fictional filled-in
+   profile. [`profile.example.yaml`](profile.example.yaml) is only the
+   shape.
+3. Edit `filters.yaml` and `aggregators.yaml` for your search. The
+   shipped examples target software-engineering titles in Canada, with
+   Alberta cities called out. A first fetch that keeps nothing is usually
+   `location_allow_patterns`. Details are in
+   [docs/configuration.md](docs/configuration.md).
+4. Add at least one board. `setup.py` creates an empty `ats_slug` table.
+   How to insert a row is in [docs/companies.md](docs/companies.md).
+5. Fetch, then look at what survived:
+
+Windows PowerShell:
+
+```powershell
+python -m app.main
+python -m app.inspect_job --rejected
 ```
 
-Results are stored in SQLite (so re-running never re-pays for a job
-already scored) and written to `data/scored_candidates.csv`, sorted
-best-match-first.
-
-### Check the scores
-
-The check below compares those scores with your own five-point apply
-labels. While you label, it shows the title, location, and job description.
-It does not show the company name or the model score. Run it from the repo root:
+macOS and Linux:
 
 ```bash
-python -m app.fit_validate          # draw a sample, then label each JD
-make validate                       # same thing
-
-python -m app.fit_validate report   # tuning-set agreement, noise, and sanity checks
-python -m app.fit_validate report --held-out
-python -m app.fit_validate tag      # one cause per disagreement
-python -m app.fit_validate noise    # rescore 12 JDs, 5 times each
-python -m app.fit_validate gates    # record hard-constraint pass/fail checks
+python3 -m app.main
+python3 -m app.inspect_job --rejected
 ```
 
-Labels are `1` strong no, `2` or `n` no, `3` or `m` maybe, `4` or `y` yes,
-and `5` or `sy` strong yes. A note can follow the label. Yes and strong yes
-count as would apply. No and strong no count as would not. Maybe is the swing label.
-The default sample is 80 scored JDs plus 20 random controls,
-split in half. The report uses the tuning half unless you pass
-`--held-out`. Copy `gates.yaml.example` to `gates.yaml` to add location,
-seniority, or other pass/fail gates. `python -m app.ai_evaluate --gates`
-applies that file before spending a model call.
+6. Score when the filtered set looks right.
 
-### 3. Review results
+Windows PowerShell:
+
+```powershell
+python -m app.ai_evaluate --dry-run
+python -m app.ai_evaluate --limit 20
+```
+
+macOS and Linux:
 
 ```bash
-cd web && npm install    # first time only
+python3 -m app.ai_evaluate --dry-run
+python3 -m app.ai_evaluate --limit 20
+```
+
+7. Open the board.
+
+Windows PowerShell:
+
+```powershell
+cd web
+npm install
 cd ..
-make web                              # starts the board at http://localhost:3000
+$env:DB_PATH = (Resolve-Path .\data\seen_jobs.sqlite3)
+npm --prefix web run dev
 ```
 
-Reads/writes `data/seen_jobs.sqlite3` directly — no export/import step.
-See [`web/README.md`](web/README.md) for details (custom `DB_PATH`,
-production build, etc).
-
-### 4. Markdown digest
+macOS and Linux:
 
 ```bash
-python -m app.digest          # writes data/digest.md
-make digest                   # same thing
+cd web
+npm install
+cd ..
+make web
 ```
 
-One section per job that passed filters and scored 45 or above, highest
-match score first. Jobs with no match score, or a score below 45, are
-left out. So are jobs you have marked **Applied** (you applied) or
-**Skipped** (not a fit). Each remaining
-section has the same information as the review board's detail panel:
-title, company, location, AI status, score, your own status, notes, the
-job link, transferable strengths, genuine gaps, risk factors, and the
-job description.
-
-To drop a job, set its **My status:** line in `data/digest.md` to
-`Applied` or `Skipped` and run `make digest` again. The decision is saved
-on that job and it is left out of the new file. `Not a good fit` is
-accepted as Skipped. Interview, rejected, and silence stay in the digest.
-The review board still lists every job, including ones the digest omits.
+`make web` sets `DB_PATH` to `data/seen_jobs.sqlite3` and starts the dev
+server. The same start without `make`:
 
 ```bash
-python -m app.digest --applied URL [URL ...]
-python -m app.digest --skipped URL [URL ...]   # not a fit
-python -m app.digest --restore URL [URL ...]   # put those jobs back
+DB_PATH="$(pwd)/data/seen_jobs.sqlite3" npm --prefix web run dev
 ```
 
-Setting Applied or Skipped on the review board has the same effect the
-next time the digest is generated. `--restore` clears that status and
-keeps any notes.
+Open http://localhost:3000.
 
-## Makefile commands
+## What each step does
 
-Thin wrappers over the commands above — run from the repo root:
+1. **Fetch** — `python -m app.main`. Reads boards from `ats_slug` where
+   `available = 1` and the board type has a fetcher, and reads searches
+   from `aggregators.yaml`. Fetchers: Greenhouse, Ashby, Workable, Lever,
+   SmartRecruiters, and Workday.
+2. **Filter** — `app/filters.py` applies `filters.yaml`: title, location,
+   posting age, then stack. A job that fails is still stored.
+3. **Dedup** — `app/dedup.py` writes `data/seen_jobs.sqlite3`. A job is
+   new only when both the URL and the normalized
+   `company::title::location` key are unseen. Later runs skip both.
+4. **Score** — `python -m app.ai_evaluate` (optional, paid). Scores
+   `passed_filters = 1` rows that have no `ai_evaluations` row yet.
+5. **Check the scores** — `python -m app.fit_validate` (optional). You
+   label job descriptions, then the tool compares those labels with the
+   stored scores.
+6. **Review** — the Next.js app in `web/`, or one card at a time with
+   `python -m app.review_ui`.
+7. **Digest** — `python -m app.digest` rewrites `data/digest.md`.
 
-| Command        | Equivalent to                    | What it does |
-|-----------------|----------------------------------|--------------|
-| `make setup`    | `python setup.py`                | Install Python dependencies, copy missing example configs, and create `data/ats_discovery.sqlite3` if needed. |
-| `make run`      | `python -m app.main`             | Fetch + filter (step 1). Interactively asks whether to skip companies/aggregators/discovery and whether to limit to one company slug, instead of you remembering the flags. |
-| `make evaluate` | `python -m app.ai_evaluate`       | AI evaluation (step 2). Interactively asks for `--dry-run` and an optional `--limit`. |
-| `make web`      | `npm --prefix web run dev`       | Starts the Next.js review board, with `DB_PATH` already pointed at `data/seen_jobs.sqlite3`. |
-| `make digest`   | `python -m app.digest`           | Writes `data/digest.md` for jobs scored 45 or above that you have not marked applied or skipped, highest score first. Reads Applied/Skipped edits from an existing digest first. |
-| `make validate` | `python -m app.fit_validate`     | Labels sampled job descriptions (title and JD only) and can report how well the fit scores match those labels. |
-| `make test`     | `pytest app/` + the standalone sanity-check scripts | Runs the full test suite (see the Tests section below). |
+Guides:
 
-`make` with no target runs `make run` (the default goal).
+- [Configuration](docs/configuration.md)
+- [Fetch, filter, and inspect](docs/fetch-and-filter.md)
+- [Scoring](docs/scoring.md)
+- [Review board, desktop cards, and digest](docs/review.md)
+- [Checking scores against your labels](docs/checking-scores.md)
+- [Company boards and discovery](docs/companies.md)
 
-## Configuration
+## Three different score lines
 
-- **`data/ats_discovery.sqlite3`** — the company registry (`ats_slug`:
-  name, ATS board, slug, `available`, `last_seen`, `discovery_time`).
-  Rows with `available = 1` are the boards `main.py` checks.
-- **`aggregators.yaml`** — aggregator search config (keywords, location,
-  pagination limits).
-- **`filters.yaml`** — title allowlist/exclusion keywords, location
-  allowlist patterns, JD stack-dealbreaker/core-stack keywords, and
-  `max_posting_age_days`. A posting older than that many days is dropped.
-  A missing date is kept. Edit this directly as you refine what counts
-  as in-scope for you — no code changes needed (matching logic lives in
-  `app/filters.py`). After you change it, `python -m app.refilter`
-  reapplies the rules to jobs already stored.
-- **`profile.yaml`** — your experience profile fed to the AI evaluation
-  step (see `profile.example.yaml` for the blank template and
-  `profile.sample.yaml` for a fully worked example).
-- **`gates.yaml`** — optional pass/fail constraints (location, seniority,
-  work authorization) checked before the fit score. See
-  `gates.yaml.example`. Absent means gating is off.
+These numbers are independent. Changing one file does not change the others.
 
-## Project layout
+| Line | Where | What it does |
+| --- | --- | --- |
+| **45** | Digest and the desktop cards (`app/digest.py` `MIN_MATCH_SCORE`) | Include a job when it passed filters, has a score, the score is at least 45, and your status is not applied or skipped. |
+| **55** | Scorer console, and the default fit-check cutoff | The console prints a score of 55 or higher on the kept line and prints `Job Rejected` below that. The row is still saved. The fit check uses 55 unless you pass `--cutoff`. |
+| none | Web board | Every `passed_filters = 1` row, including unscored jobs and jobs you marked applied or skipped. |
 
+`Makefile` comments still mention 55 for the digest. `make digest` runs
+`python -m app.digest`, which uses 45.
+
+## Two different status words
+
+The model recommendation and your own status are stored apart.
+
+| | Stored values | Where you set it |
+| --- | --- | --- |
+| AI recommendation | `apply`, `consider`, `skip` | Scoring writes this. The board shows "Not evaluated" when the row has no score. |
+| Your status | `applied`, `interview`, `rejected`, `skipped`, `silence` | Board, desktop cards, or the digest. |
+
+`applied` means you applied. `skipped` means it is not a fit. Those two
+drop a job from the digest and from the desktop cards. Interview,
+rejected, and silence stay in both.
+
+## Commands
+
+| Command | What you get |
+| --- | --- |
+| `python setup.py` | Dependencies, missing config files, empty `ats_slug` table. |
+| `python -m app.main` | Fetch, filter, dedup. Appends passers to `data/candidates.csv`. |
+| `python -m app.refilter` | Re-applies `filters.yaml` to jobs already stored. |
+| `python -m app.inspect_job <url>` | One stored job, including the description and why it was filtered out. |
+| `python -m app.ai_evaluate` | Scores unscored jobs that passed filters. Rewrites `data/scored_candidates.csv`. |
+| `python -m app.fit_validate` | Draws a sample if needed, then asks you to label each description. |
+| `python -m app.review_ui` | Desktop cards for the same jobs the digest includes. |
+| `python -m app.digest` | Rewrites `data/digest.md`. |
+| `python -m pytest app/ -q` | Test suite. No live job APIs and no Anthropic calls. |
+
+Flags, prompts, and files for each command are in the docs linked above.
+
+### Make targets
+
+On macOS and Linux these targets are the normal way to run each step.
+`make` with no target runs `make run`. Each target calls `python`, so
+`python` on your `PATH` must be Python 3.10 or newer. If only `python3`
+exists, run the `python3 -m` form from the tables above.
+
+| Target | Runs | Extra behavior |
+| --- | --- | --- |
+| `make setup` | `python setup.py` | |
+| `make run` | `python -m app.main` | Asks whether to skip boards, aggregators, or discovery, and whether to limit the run to one slug. |
+| `make evaluate` | `python -m app.ai_evaluate` | Asks whether to dry-run and whether to set `--limit`. It does not pass `--gates`. |
+| `make web` | `npm --prefix web run dev` | Sets `DB_PATH` to `data/seen_jobs.sqlite3`. |
+| `make digest` | `python -m app.digest` | Reads Applied and Skipped edits in an existing digest, then writes the file again. |
+| `make validate` | `python -m app.fit_validate` | Sample if needed, then label. |
+| `make test` | `python -m pytest app/ -q`, then three test modules as scripts | |
+
+Some tests call the filters loaded from the `filters.yaml` in the repo
+root. After you change title or location rules, those tests can fail
+while the fetchers are fine.
+
+## Layout
+
+```text
+app/                  pipeline commands (run as python -m app.<name>)
+app/scripts/          one-off diagnostics; not part of a normal run
+ats-expansion/        Common Crawl discovery and board vetting
+web/                  Next.js review board
+data/                 local databases and exports (gitignored)
 ```
-app/
-  main.py                 orchestrates fetch -> filter -> dedup -> candidates.csv
-  ats_clients.py           one fetch function per ATS
-  aggregator_clients.py    one fetch function per aggregator
-  filters.py               loads and applies filters.yaml's rules
-  dedup.py                 SQLite store (seen_jobs, job_details)
-  discover_companies.py    records newly-resolved companies in ats_slug
-  ai_evaluate.py           stage 2: Claude-based fit scoring
-  fit_validate.py          label JDs and measure score noise, agreement, and gates
-  digest.py                Markdown digest of open jobs scored 45 or above, highest score first
-  inspect_job.py           CLI to look up a stored job or list recent rejections
-  refilter.py              re-runs current filters.py against already-fetched jobs
-  scripts/                 one-off diagnostic/maintenance scripts, not part of the pipeline
-  tests/                   pytest + standalone sanity-check scripts
-web/                       Next.js review board (see web/README.md)
-companies.yaml.example     example company entries (not read by the pipeline)
-data/ats_discovery.sqlite3 company -> ATS registry (table ats_slug)
-aggregators.yaml           aggregator search config
-filters.yaml               title/location/stack filter rules
-profile.example.yaml       blank template for profile.yaml (your real profile, gitignored)
-profile.sample.yaml        fully worked (fictional) example of a filled-in profile
-```
 
-## Tests
-
-```bash
-make test
-```
-
-Runs the pytest suite plus the standalone sanity-check scripts
-(`test_pipeline.py`, `test_discover_companies.py`, `test_ai_evaluate.py`).
-None of them call live external APIs.
-
-## Notes on scope
-
-- ATS fetchers for Greenhouse, Ashby, Workable, and Lever were each
-  validated against real live responses. SmartRecruiters support is built
-  from documentation and third-party corroboration only — verify a new
-  SmartRecruiters company with `python -m app.main --company <slug>`
-  before trusting it in a real run.
-- If a particular company's fetch fails, `main.py` logs a warning and
-  continues with the rest rather than crashing the whole run.
-
-## Possible next steps
-
-- Workday support (`clio.wd3.myworkdayjobs.com`-style boards) — its
-  job-search API is POST-based with a different pagination shape than the
-  ATSes currently supported.
-- Company-name normalization for aggregator-sourced dedup (the same
-  posting sometimes comes back under slightly different company name
-  strings, e.g. "Acme Corp" vs. "Acme").
-- Scheduling: once you're happy with a full local run, a daily cron entry
-  like `0 7 * * * cd /path/to/job_search_pipeline && python -m app.main && python -m app.ai_evaluate`.
+`companies.yaml` is not read. `companies.yaml.example` only shows the old
+entry shape and the Workday slug format.
 
 ## License
 
