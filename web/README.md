@@ -1,50 +1,110 @@
-# Job Search Board (Next.js)
+# Job search board
 
-A local web UI over `job_search_pipeline`'s SQLite store (`../data/seen_jobs.sqlite3`).
-Reads and writes the database directly — no export/import step, no separate JSON file
-to keep in sync. This is now the recommended way to browse jobs and track your own
-`applied / interview / rejected / skipped / silence` status with notes.
+A local Next.js app on the pipeline database `data/seen_jobs.sqlite3`.
+It reads and writes that file. There is no export step.
+
+The board lists every job with `passed_filters = 1`, including unscored
+jobs and jobs you have marked applied or skipped. The Markdown digest and
+the desktop cards use a narrower rule (score at least 45, and not applied
+or skipped). That rule is documented in the root
+[README](../README.md) and in [docs/review.md](../docs/review.md).
 
 ## Setup
+
+Install dependencies once, from the repository root. This is the same on
+Windows, macOS, and Linux:
 
 ```bash
 cd web
 npm install
+cd ..
+```
+
+Windows PowerShell, from the repository root:
+
+```powershell
+$env:DB_PATH = (Resolve-Path .\data\seen_jobs.sqlite3)
+npm --prefix web run dev
+```
+
+macOS and Linux, from the repository root:
+
+```bash
+make web
+```
+
+`make web` sets `DB_PATH` to `data/seen_jobs.sqlite3` and starts the dev
+server. Without `make`:
+
+```bash
+DB_PATH="$(pwd)/data/seen_jobs.sqlite3" npm --prefix web run dev
+```
+
+`npm --prefix web` leaves the working directory at the repo root, so set
+`DB_PATH` in that case. The app's own default is
+`../data/seen_jobs.sqlite3` relative to the process working directory,
+which is correct when you start npm from `web/`.
+
+Windows PowerShell:
+
+```powershell
+cd web
+$env:DB_PATH = (Resolve-Path ..\data\seen_jobs.sqlite3)
 npm run dev
 ```
 
-Then open http://localhost:3000. It reads `../data/seen_jobs.sqlite3` relative to the
-`web/` folder — i.e. it expects `job_search_pipeline/data/seen_jobs.sqlite3` to exist,
-which means you should run the Python pipeline (`main.py`, then `ai_evaluate.py`) at
-least once first. If the file doesn't exist yet, the app still starts and creates the
-tables it needs, you'll just see an empty board.
-
-If your `job_search_pipeline` checkout lives somewhere other than the parent of `web/`,
-point at the database explicitly:
+macOS and Linux:
 
 ```bash
-DB_PATH=/path/to/seen_jobs.sqlite3 npm run dev
+cd web
+DB_PATH="$(pwd)/../data/seen_jobs.sqlite3" npm run dev
 ```
 
-## What it shows
+Open http://localhost:3000. Fetch and score with the Python pipeline
+first if you want rows to look at. A missing database still starts: the
+app creates empty tables and the board has no jobs.
 
-Only jobs that passed the deterministic filter (`passed_filters = 1`). Each row has:
+## Using the board
 
-- AI status (`apply` / `consider` / `skip` / `not evaluated`) — from `ai_evaluate.py`
-- Your own status (`applied` / `interview` / `rejected` / `skipped` / `silence`) —
-  set inline in the table or from the detail panel. Deliberately separate from the AI's
-  suggestion, since one is "should I apply" and the other is "what actually happened".
-  Applied and Skipped jobs, and jobs scored below 45, are left out of
-  `data/digest.md` the next time you run `make digest`.
-- Notes — free text, editable from the detail panel.
+The toolbar filters by AI status and by your status, and it searches
+company and title. The badge shows visible rows over total rows. Refresh
+reloads SQLite. The page does not poll, so run Refresh after a fetch or a
+scoring run.
 
-Filter by either status, search by company/title, sort any column, click a row to open
-the full JD plus the AI's reasoning (gaps / strengths / risk factors) and edit
-status+notes.
+Click a column header to sort. Click a row to open the posting, the model
+notes (strengths, gaps, risks), and the description. Edit **My status**
+and **Notes**, then press Save. The status menu on the row itself saves
+immediately and keeps the current notes.
+
+Your status is `applied`, `interview`, `rejected`, `skipped`, or
+`silence`. The model recommendation is `apply`, `consider`, or `skip`,
+shown as Apply, Consider, Skip, or Not evaluated. They are stored in
+different tables.
+
+Applied and skipped jobs stay on this board. They drop out of
+`data/digest.md` the next time you run `python -m app.digest`.
+
+`GET /api/jobs` and `POST /api/status` talk to SQLite on each call.
+`POST /api/status` expects JSON `{ "url", "my_status", "notes" }`.
 
 ## Production build
 
-```bash
+From `web/`. Set `DB_PATH` when the database is not at the default
+relative path.
+
+Windows PowerShell:
+
+```powershell
+cd web
+$env:DB_PATH = (Resolve-Path ..\data\seen_jobs.sqlite3)
 npm run build
 npm run start
+```
+
+macOS and Linux:
+
+```bash
+cd web
+DB_PATH="$(pwd)/../data/seen_jobs.sqlite3" npm run build
+DB_PATH="$(pwd)/../data/seen_jobs.sqlite3" npm run start
 ```
