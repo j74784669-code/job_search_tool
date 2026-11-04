@@ -1,0 +1,106 @@
+# A fully worked fictional profile. profile.example.yaml is the field
+# outline to copy from; this file shows what a filled-in one looks like:
+# the level of specificity each evidence bullet should have, and how to
+# phrase a competency summary so the AI evaluation step in ai_evaluate.py
+# has something concrete to reason about instead of vague claims like
+# "worked on backend stuff."
+#
+# None of the people, companies, or numbers below are real.
+
+identity:
+  name: "Jordan Hale"
+  email: "jordan.hale@example.com"
+  phone: "555-0148"
+  headline: "Senior Software Engineer — Backend, APIs, and Internal Tools"
+  years_experience: 9
+  location: "Denver, Colorado, USA"
+  location_constraints: >
+    Based in Denver, CO. Open to remote-US roles and to Denver or Boulder
+    on-site or hybrid roles. Not seeking relocation.
+  education:
+    - "B.Sc. Computer Science, Colorado State University"
+
+core_stack:
+  languages_frameworks: ["Python", "Go", "TypeScript", "FastAPI", "Django"]
+  ai_genai: ["Structured LLM outputs", "Eval harnesses", "Retrieval over internal docs"]
+  data_infra: ["PostgreSQL", "Redis", "SQLite", "Docker", "Terraform", "AWS"]
+
+competencies:
+  backend_architecture:
+    summary: >
+      Designs boring, debuggable HTTP and worker services: clear data
+      models, explicit failure modes, and APIs other teams can call
+      without a meeting.
+    evidence:
+      - "Replaced a nightly CSV import with an idempotent job queue that
+         processes 1.2M shipment events per day and retries failed rows
+         without duplicating charges (Lumenfield Logistics)."
+      - "Split a 90-endpoint Django app into a public REST API and an
+         internal admin service, cutting p95 latency on the public read
+         path from 700ms to 180ms (Lumenfield Logistics)."
+      - "Added request-level tracing across 8 services so on-call could
+         follow one order id from the API to the warehouse worker
+         (Lumenfield Logistics)."
+
+  ai_genai_systems:
+    summary: >
+      Uses models where the output can be checked: structured responses,
+      a stored eval set, and a human review step for anything customer-facing.
+    evidence:
+      - "Built an internal assistant over 40k support articles that answers
+         with a cited source; agents accepted the draft unchanged on 61% of
+         tickets after the second prompt revision (Kindling Labs)."
+      - "Kept a 200-case eval set in the repo and blocked release when the
+         score on refund-policy questions dropped more than 5 points
+         (Kindling Labs)."
+
+  technical_leadership:
+    summary: >
+      Senior IC who writes the design note, reviews other people's changes,
+      and stays on the implementation.
+    evidence:
+      - "Led a 4-engineer rewrite of the billing export. Wrote the design
+         note, sequenced the cutover, and the first quarter after launch
+         had 4 billing incidents versus 19 in the quarter before (Lumenfield
+         Logistics)."
+      - "Mentored two new graduates for a year; both shipped production
+         services on their own by month eight (Kindling Labs)."
+
+  fullstack_product_delivery:
+    summary: >
+      Can take a small internal tool from a rough brief to something
+      operations will actually use, including the screen in front of it.
+    evidence:
+      - "Shipped a warehouse exception desk (React plus a FastAPI backend)
+         in 5 weeks. Floor leads used it to clear the morning queue, which
+         dropped from about 3 hours to under 45 minutes (Lumenfield
+         Logistics)."
+      - "Paired with a contract designer to replace a settings page that
+         support had been editing in the database (Kindling Labs)."
+
+  cost_and_ops_impact:
+    summary: >
+      Looks at the bill before adding another vendor or another always-on
+      service.
+    evidence:
+      - "Cached geocoding results for repeat addresses and cut that vendor
+         bill from $2,400 a month to about $300 (Lumenfield Logistics)."
+      - "Turned off two idle staging clusters that had been left running
+         after a launch, saving about $900 a month (Kindling Labs)."
+
+experience_timeline:
+  - company: "Lumenfield Logistics"
+    dates: "2023-2026"
+    title: "Senior Software Engineer"
+    domain: "Software for regional freight carriers"
+    stack: ["Python", "FastAPI", "PostgreSQL", "React", "AWS"]
+  - company: "Kindling Labs"
+    dates: "2017-2023"
+    title: "Software Engineer"
+    domain: "Developer tools for support teams"
+    stack: ["Python", "Django", "Go", "PostgreSQL", "Redis"]
+
+constraints:
+  - "Wants a senior individual-contributor role, not people management."
+  - "Prefers a product that already has paying customers."
+  - "Not seeking relocation outside Colorado."
