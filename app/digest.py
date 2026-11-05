@@ -263,7 +263,14 @@ def render_digest(jobs: list[dict], excluded: int = 0) -> str:
     return header + "\n---\n\n".join(render_job(job) for job in jobs)
 
 
-def _open_and_excluded(jobs: list[dict]) -> tuple[list[dict], int]:
+def listings_for_review(jobs: list[dict]) -> tuple[list[dict], int]:
+    """Jobs the digest and the desktop cards show, plus how many were left out.
+
+    A scored job stays when its score is at least MIN_MATCH_SCORE and it is
+    not applied or skipped. The count is every other scored job from the
+    same list. Callers pass rows from dedup.iter_board_jobs, which already
+    drops jobs that failed filters or have no score.
+    """
     open_jobs = []
     excluded = 0
     for job in jobs:
@@ -279,7 +286,7 @@ def _open_and_excluded(jobs: list[dict]) -> tuple[list[dict], int]:
 def write_digest(db_path: str = dedup.DB_PATH, output: Path = OUTPUT_PATH) -> int:
     with dedup.connect(db_path) as conn:
         jobs = list(dedup.iter_board_jobs(conn))
-    open_jobs, excluded = _open_and_excluded(jobs)
+    open_jobs, excluded = listings_for_review(jobs)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(render_digest(open_jobs, excluded), encoding="utf-8")
     return len(open_jobs)

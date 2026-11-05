@@ -177,30 +177,31 @@ def distinct_companies(conn) -> list[str]:
     return [row[0] for row in cur.fetchall()]
 
 
+_FILTER_JOB_KEYS = ["url", "company", "title", "location", "posted_at", "description"]
+
+
+def _iter_jobs_with_passed_flag(conn, passed: bool):
+    cur = conn.execute(
+        "SELECT url, company, title, location, posted_at, description "
+        "FROM job_details WHERE passed_filters = ?",
+        (1 if passed else 0,),
+    )
+    for row in cur.fetchall():
+        yield dict(zip(_FILTER_JOB_KEYS, row))
+
+
 def iter_filtered_out(conn):
     """Every job we've ever stored that didn't pass the filters at fetch
     time — the input for refilter.py, which re-runs the CURRENT filters.py
     against them without re-hitting the ATS/aggregator APIs."""
-    cur = conn.execute(
-        "SELECT url, company, title, location, posted_at, description "
-        "FROM job_details WHERE passed_filters = 0"
-    )
-    keys = ["url", "company", "title", "location", "posted_at", "description"]
-    for row in cur.fetchall():
-        yield dict(zip(keys, row))
+    yield from _iter_jobs_with_passed_flag(conn, False)
 
 
 def iter_passed(conn):
     """Every job we've ever stored that DID pass the filters at fetch time
     — the other input for refilter.py, so a TIGHTENED filter can demote
     jobs that no longer pass, not just rescue ones that now do."""
-    cur = conn.execute(
-        "SELECT url, company, title, location, posted_at, description "
-        "FROM job_details WHERE passed_filters = 1"
-    )
-    keys = ["url", "company", "title", "location", "posted_at", "description"]
-    for row in cur.fetchall():
-        yield dict(zip(keys, row))
+    yield from _iter_jobs_with_passed_flag(conn, True)
 
 
 def set_passed_filters(conn, url: str, passed: bool) -> None:
@@ -284,7 +285,7 @@ def iter_board_jobs(conn):
     title, and URL break ties so a digest is stable from run to run.
     """
     cur = conn.execute(
-        "SELECT jd.url, jd.company, jd.title, jd.location, jd.description, "
+        "SELECT jd.url, jd.company, jd.title, jd.location, jd.posted_at, jd.description, "
         "       ae.match_score, ae.recommendation, ae.genuine_gaps, "
         "       ae.transferable_strengths, ae.risk_factors, "
         "       us.my_status, us.notes "
@@ -295,7 +296,7 @@ def iter_board_jobs(conn):
         "ORDER BY ae.match_score DESC, jd.company, jd.title, jd.url"
     )
     keys = [
-        "url", "company", "title", "location", "description",
+        "url", "company", "title", "location", "posted_at", "description",
         "match_score", "recommendation", "genuine_gaps",
         "transferable_strengths", "risk_factors", "my_status", "notes",
     ]

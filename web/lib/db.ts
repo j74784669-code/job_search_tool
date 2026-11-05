@@ -1,5 +1,8 @@
 import Database from "better-sqlite3";
 import path from "node:path";
+import { MY_STATUS_VALUES } from "@/app/constants";
+
+export { MY_STATUS_VALUES };
 
 // Points at the SAME sqlite file the Python pipeline (dedup.py) writes to
 // — this app is a read/write viewer on top of it, not a separate data
@@ -7,8 +10,11 @@ import path from "node:path";
 // somewhere other than the parent of this web/ folder.
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), "..", "data", "seen_jobs.sqlite3");
 
-export const MY_STATUS_VALUES = ["applied", "interview", "rejected", "skipped", "silence"] as const;
 export type MyStatus = (typeof MY_STATUS_VALUES)[number];
+
+export function isMyStatus(value: string): value is MyStatus {
+  return (MY_STATUS_VALUES as readonly string[]).includes(value);
+}
 
 export type JobRow = {
   url: string;

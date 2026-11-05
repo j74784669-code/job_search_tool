@@ -16,7 +16,7 @@ import tkinter.font as tkfont
 import webbrowser
 
 from app import dedup
-from app.digest import EXCLUDED_STATUSES, MIN_MATCH_SCORE, MY_STATUS_LABEL, description_to_text
+from app.digest import MIN_MATCH_SCORE, MY_STATUS_LABEL, description_to_text, listings_for_review
 
 BG = "#100c02"
 AMBER = "#ffb000"
@@ -61,33 +61,9 @@ AI_LABEL = {
 
 
 def load_listings(conn) -> list[dict]:
-    """Digest jobs: passed filters, score >= MIN_MATCH_SCORE, not applied or skipped."""
-    excluded = tuple(sorted(EXCLUDED_STATUSES))
-    marks = ", ".join("?" * len(excluded))
-    cur = conn.execute(
-        f"""
-        SELECT jd.url, jd.company, jd.title, jd.location, jd.posted_at,
-               jd.description,
-               ae.match_score, ae.recommendation, ae.genuine_gaps,
-               ae.transferable_strengths, ae.risk_factors,
-               us.my_status, us.notes
-        FROM job_details jd
-        LEFT JOIN ai_evaluations ae ON jd.url = ae.url
-        LEFT JOIN user_status us ON jd.url = us.url
-        WHERE jd.passed_filters = 1
-          AND ae.match_score IS NOT NULL
-          AND ae.match_score >= ?
-          AND (us.my_status IS NULL OR lower(us.my_status) NOT IN ({marks}))
-        ORDER BY ae.match_score DESC, jd.company, jd.title, jd.url
-        """,
-        (MIN_MATCH_SCORE, *excluded),
-    )
-    keys = [
-        "url", "company", "title", "location", "posted_at", "description",
-        "match_score", "recommendation", "genuine_gaps",
-        "transferable_strengths", "risk_factors", "my_status", "notes",
-    ]
-    return [dict(zip(keys, row)) for row in cur.fetchall()]
+    """Same jobs as the digest. The cutoff and status rule live in listings_for_review."""
+    jobs, _excluded = listings_for_review(list(dedup.iter_board_jobs(conn)))
+    return jobs
 
 
 def confirm_status(applied: bool, skipped: bool, current: str | None) -> str | None:
